@@ -6,11 +6,11 @@
 
   $Revision: 42145 3ef6ef136f68132df4d932bf16f29ac1ec1b893b $
   $Date: 2018-09-28 16:13:20 $
-  
+
   FORKID {A976579B-D88D-49BF-BBCB-678B0F10B13A}
 */
 
-description = "UCCNC";
+description = "UCCNC Laser";
 vendor = "UCCNC";
 vendorUrl = "http://www.cncdrive.com/";
 legal = "Copyright (C) 2012-2018 by Autodesk, Inc.";
@@ -22,7 +22,7 @@ longDescription = "Generic post for machines using UCCNC control software. If yo
 extension = "nc";
 setCodePage("ascii");
 
-capabilities = CAPABILITY_MILLING | CAPABILITY_JET;
+capabilities = CAPABILITY_JET;
 tolerance = spatial(0.002, MM);
 
 minimumChordLength = spatial(0.25, MM);
@@ -47,8 +47,9 @@ properties = {
   toolChangePositionY: 0, // specifies the tool change position for Y
   fourthAxisAround: "none", // specifies the fourth axis if mounted
   useSmoothing: true, // specifies to use constant velocity mode
-  useParametricFeed: false, // specifies that feed should be output using parameters
-  laserPowerPrecentage: 25 // set the laser power in %
+  useParametricFeed: true, // specifies that feed should be output using parameters
+  laserPowerPercentage: 25, // set the laser power in %
+  laserDelayBeforeRapid: 100 // how long to pause after the laser has switched off to wait before a rapid move
   /*referenceRun: true*/ // move to reference point first at the beginning of the program
 };
 
@@ -66,7 +67,8 @@ propertyDefinitions = {
   fourthAxisAround: {title:"Fourth axis mounted along", description:"Specifies which axis the fourth axis is mounted on.", type:"enum", values:[{id:"none", title:"None"}, {id:"x", title:"Along X"}, {id:"y", title:"Along Y"}]},
   useSmoothing: {title:"Use smoothing", description:"Specifies if smoothing should be used or not.", type:"boolean"},
   useParametricFeed:  {title:"Parametric feed", description:"Specifies the feed value that should be output using a Q value.", type:"boolean"},
-  laserPowerPrecentage: {title:"Laser power percentage", description:"Sets the laser power in percentage.", type:"number"}
+  laserPowerPercentage: {title:"Laser power default", description:"Sets the laser power if  none is found  in the tool.", type:"number"},
+  laserDelayBeforeRapid: {title:"Laser delay before rapid", description:"Sets the dwell time after a cut and before a rapid move to minimise streaking on the part", type:"number"}
 };
 
 // samples:
@@ -84,10 +86,14 @@ var coolants = {
   off: 9
 };
 
+// array to hold power for each laser tool
+var laserPowers = new Array();
+
 var gFormat = createFormat({prefix:"G", decimals:1});
 var mFormat = createFormat({prefix:"M", decimals:0});
 var hFormat = createFormat({prefix:"H", decimals:0});
 var qFormat = createFormat({prefix:"Q", decimals:0});
+var pFormat = createFormat({prefix:"P", decimals:0});
 
 var xyzFormat = createFormat({decimals:(unit == MM ? 3 : 4), forceDecimal:true});
 var abcFormat = createFormat({decimals:3, forceDecimal:true, scale:DEG});
@@ -126,8 +132,8 @@ var gRetractModal = createModal({}, gFormat); // modal group 10 // G98-99
 var WARNING_WORK_OFFSET = 0;
 
 // fixed settings
-var firstFeedParameter = 10;
-var powerParameter = 1;
+var firstFeedParameter = 1;
+var firstpowerParameter = 201;
 
 // collected state
 var sequenceNumber;
@@ -244,15 +250,54 @@ function onOpen() {
           }
           comment += " - " + getToolTypeName(tool.type);
           writeComment(comment);
+        } else {
+          // writeComment(getAsInt(tool.vendor));
+          var _powerText = tool.vendor ? tool.vendor : "N/A";
+          // Default cutting power if there is none present in the tool
+          var _cuttingPowerRaw = properties.laserPowerPrecentage;
+
+          var _usingDefaultPower = true;
+
+          if (tool.vendor) {
+            // Strip out number digits from vendor string
+            var _vendorFiltered = filterText(tool.vendor, "0123456789");
+            if (tool.vendor == _vendorFiltered) {
+              // Vendor string contains only numbers
+              _cuttingPowerRaw = getAsInt(tool.vendor);
+              _usingDefaultPower = false;
+            } else {
+              error(localize("Laser power from toolVendor property contains non-number characters. toolVendor from library: " + tool.vendor));
+              return;
+            }
+          }
+          var _cuttingPower = 255 * (_cuttingPowerRaw / 100);
+
+          laserPowers.push({
+            "toolNumber": tool.number,
+            "power": powerFormat.format(_cuttingPower),
+            "powerString": _cuttingPowerRaw,
+            "paramNumber": firstpowerParameter,
+            "defaultPower": _usingDefaultPower
+          })
+          firstpowerParameter++;
+
+          var comment = "T" + toolFormat.format(tool.number) +
+          " Kerf=" + xyzFormat.format(tool.getJetDiameter()) + " P=" + _powerText +
+          conditional(tool.description, " {") + tool.description + conditional(tool.description, "}");
+          writeComment(comment);
         }
       }
     }
-    var cuttingPower = 255 * (properties.laserPowerPrecentage / 100);
-  if ((qFormat.getResultingValue(cuttingPower) > 255) || (qFormat.getResultingValue(cuttingPower) < 64)) {
-    error(localize("Property 'laserPowerPrecentage' is out of range. Only 25% to 100% is allowed."));
-    return;
-  }
-        writeBlock("#" + powerParameter + "=" + powerFormat.format(cuttingPower) +" (Laser Power)");
+
+    writeln("");
+    writeComment("Power Parameters");
+    for (var i = 0; i < laserPowers.length; i++) {
+      writeBlock("#" + laserPowers[i]["paramNumber"] + "=" + laserPowers[i]["power"] +
+      " (Laser power for T" + laserPowers[i]["toolNumber"] + ", " +
+      laserPowers[i]["powerString"] + "%" +
+      conditional(laserPowers[i]["defaultPower"], " [Default]") +
+      ")");
+    }
   }
 
   if ((getNumberOfSections() > 0) && (getSection(0).workOffset == 0)) {
@@ -442,7 +487,7 @@ function getFeed(f) {
 function initializeActiveFeeds() {
   activeMovements = new Array();
   var movements = currentSection.getMovements();
-  
+
   var id = 0;
   var activeFeeds = new Array();
   if (hasParameter("operation:tool_feedCutting")) {
@@ -461,7 +506,7 @@ function initializeActiveFeeds() {
     }
     ++id;
   }
-  
+
   if (hasParameter("operation:finishFeedrate")) {
     if (movements & (1 << MOVEMENT_FINISH_CUTTING)) {
       var feedContext = new FeedContext(id, localize("Finish"), getParameter("operation:finishFeedrate"));
@@ -477,7 +522,7 @@ function initializeActiveFeeds() {
     }
     ++id;
   }
-  
+
   if (hasParameter("operation:tool_feedEntry")) {
     if (movements & (1 << MOVEMENT_LEAD_IN)) {
       var feedContext = new FeedContext(id, localize("Entry"), getParameter("operation:tool_feedEntry"));
@@ -513,7 +558,7 @@ function initializeActiveFeeds() {
     }
     ++id;
   }
-  
+
   if (hasParameter("operation:reducedFeedrate")) {
     if (movements & (1 << MOVEMENT_REDUCED)) {
       var feedContext = new FeedContext(id, localize("Reduced"), getParameter("operation:reducedFeedrate"));
@@ -550,11 +595,11 @@ function initializeActiveFeeds() {
     }
     ++id;
   }
-  
+
   for (var i = 0; i < activeFeeds.length; ++i) {
     var feedContext = activeFeeds[i];
     writeBlock("#" + (firstFeedParameter + feedContext.id) + "=" + feedFormat.format(feedContext.feed), formatComment(feedContext.description));
-  }	
+  }
 }
 
 function isProbeOperation() {
@@ -579,7 +624,7 @@ function onSection() {
     (!getPreviousSection().isMultiAxis() && currentSection.isMultiAxis() ||
       getPreviousSection().isMultiAxis() && !currentSection.isMultiAxis()); // force newWorkPlane between indexing and simultaneous operations
   jetMode = currentSection.getType() == TYPE_JET;
-  
+
   if (!isFirstSection() && (currentSection.getType() != getPreviousSection().getType())) {
     writeBlock(mFormat.format(0), formatComment(localize("Pause program for changing milling/laser aggregate.")));
   }
@@ -591,7 +636,7 @@ function onSection() {
     zOutput.enable();
     sOutput.enable();
   }
-  
+
   if (insertToolCall || newWorkOffset || newWorkPlane) {
     writeRetract(Z);
   }
@@ -661,7 +706,7 @@ function onSection() {
       writeBlock(mFormat.format(3)); // signal active for uccnc
     }
   }
-  
+
   if (properties.useParametricFeed &&
       hasParameter("operation-strategy") &&
       (getParameter("operation-strategy") != "drill") && // legacy
@@ -677,7 +722,7 @@ function onSection() {
   } else {
     activeMovements = undefined;
   }
-  
+
   if (properties.useSmoothing && !jetMode) {
     if (hasParameter("operation-strategy") && (getParameter("operation-strategy") == "drill")) {
       writeBlock(gFormat.format(61));
@@ -782,8 +827,18 @@ function onSection() {
 }
 
 function onPower(power) {
-  
-  writeBlock(mFormat.format(power ? 10 : 11), conditional(power, "Q#"+powerParameter));
+  var _power;
+  for (var i = 0; i < laserPowers.length; i++) {
+    if (laserPowers[i]["toolNumber"] == tool.number) {
+      _power = laserPowers[i]["paramNumber"]
+    }
+  }
+
+  writeBlock(mFormat.format(power ? 10 : 11), conditional(power, "Q#"+_power));
+
+  if (!power) {
+    writeBlock(gFormat.format(4), pFormat.format(properties.laserDelayBeforeRapid));
+  }
 }
 
 var currentCoolantMode = COOLANT_OFF;
@@ -885,7 +940,7 @@ function getCoolantCodes(coolant) {
     coolantOff = coolants.floodThroughTool.off;
     break;
   }
-  
+
   if (!m) {
     onUnsupportedCoolant(coolant);
     m = 9;
@@ -1373,7 +1428,7 @@ function writeRetract() {
 function onClose() {
   onCommand(COMMAND_COOLANT_OFF);
   onCommand(COMMAND_STOP_SPINDLE);
-  
+
   writeRetract(Z);
 
   setWorkPlane(new Vector(0, 0, 0)); // reset working plane
