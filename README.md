@@ -1,1 +1,1 @@
-Collectio of cusion post processors for use with Autodesk CAM (Inventor / Fusion 360). 
+Collection of cusion post processors for use with Autodesk CAM (Inventor / Fusion 360). 
