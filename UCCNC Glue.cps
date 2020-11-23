@@ -6,7 +6,7 @@
 
   $Revision: 42145 3ef6ef136f68132df4d932bf16f29ac1ec1b893b $
   $Date: 2018-09-28 16:13:20 $
-  
+
   FORKID {A976579B-D88D-49BF-BBCB-678B0F10B13A}
 */
 
@@ -484,7 +484,7 @@ function getFeed(f) {
 function initializeActiveFeeds() {
   activeMovements = new Array();
   var movements = currentSection.getMovements();
-  
+
   var id = 0;
   var activeFeeds = new Array();
   if (hasParameter("operation:tool_feedCutting")) {
@@ -503,7 +503,7 @@ function initializeActiveFeeds() {
     }
     ++id;
   }
-  
+
   if (hasParameter("operation:finishFeedrate")) {
     if (movements & (1 << MOVEMENT_FINISH_CUTTING)) {
       var feedContext = new FeedContext(id, localize("Finish"), getParameter("operation:finishFeedrate"));
@@ -519,7 +519,7 @@ function initializeActiveFeeds() {
     }
     ++id;
   }
-  
+
   if (hasParameter("operation:tool_feedEntry")) {
     if (movements & (1 << MOVEMENT_LEAD_IN)) {
       var feedContext = new FeedContext(id, localize("Entry"), getParameter("operation:tool_feedEntry"));
@@ -555,7 +555,7 @@ function initializeActiveFeeds() {
     }
     ++id;
   }
-  
+
   if (hasParameter("operation:reducedFeedrate")) {
     if (movements & (1 << MOVEMENT_REDUCED)) {
       var feedContext = new FeedContext(id, localize("Reduced"), getParameter("operation:reducedFeedrate"));
@@ -592,11 +592,11 @@ function initializeActiveFeeds() {
     }
     ++id;
   }
-  
+
   for (var i = 0; i < activeFeeds.length; ++i) {
     var feedContext = activeFeeds[i];
     writeBlock("#" + (firstFeedParameter + feedContext.id) + "=" + feedFormat.format(feedContext.feed), formatComment(feedContext.description));
-  }	
+  }
 }
 
 function isProbeOperation() {
@@ -621,7 +621,7 @@ function onSection() {
     (!getPreviousSection().isMultiAxis() && currentSection.isMultiAxis() ||
       getPreviousSection().isMultiAxis() && !currentSection.isMultiAxis()); // force newWorkPlane between indexing and simultaneous operations
   jetMode = currentSection.getType() == TYPE_JET;
-  
+
   if (!isFirstSection() && (currentSection.getType() != getPreviousSection().getType())) {
     writeBlock(mFormat.format(0), formatComment(localize("Pause program for changing milling/laser aggregate.")));
   }
@@ -633,7 +633,7 @@ function onSection() {
     zOutput.enable();
     sOutput.enable();
   }
-  
+
   if (insertToolCall || newWorkOffset || newWorkPlane) {
     writeRetract(Z);
   }
@@ -703,7 +703,7 @@ function onSection() {
       writeBlock(mFormat.format(3)); // signal active for uccnc
     }
   }
-  
+
   if (properties.useParametricFeed &&
       hasParameter("operation-strategy") &&
       (getParameter("operation-strategy") != "drill") && // legacy
@@ -719,7 +719,7 @@ function onSection() {
   } else {
     activeMovements = undefined;
   }
-  
+
   if (properties.useSmoothing && !jetMode) {
     if (hasParameter("operation-strategy") && (getParameter("operation-strategy") == "drill")) {
       writeBlock(gFormat.format(61));
@@ -824,7 +824,7 @@ function onSection() {
 }
 
 // function onPower(power) {
-  
+
 //   writeBlock(mFormat.format(power ? 10 : 11), conditional(power, "Q#"+powerParameter));
 // }
 
@@ -927,7 +927,7 @@ function getCoolantCodes(coolant) {
     coolantOff = coolants.floodThroughTool.off;
     break;
   }
-  
+
   if (!m) {
     onUnsupportedCoolant(coolant);
     m = 9;
@@ -1415,7 +1415,7 @@ function writeRetract() {
 function onClose() {
   onCommand(COMMAND_COOLANT_OFF);
   onCommand(COMMAND_STOP_SPINDLE);
-  
+
   writeRetract(Z);
 
   setWorkPlane(new Vector(0, 0, 0)); // reset working plane
