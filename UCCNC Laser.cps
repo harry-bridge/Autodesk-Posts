@@ -49,7 +49,7 @@ properties = {
   useSmoothing: true, // specifies to use constant velocity mode
   useParametricFeed: true, // specifies that feed should be output using parameters
   laserPowerPercentage: 25, // set the laser power in %
-  laserDelayBeforeRapid: 100 // how long to pause after the laser has switched off to wait before a rapid move
+  laserDelayBeforeRapidScaler: 1.2 // how long to pause after the laser has switched off to wait before a rapid move, scaler * laser power in percentage
   /*referenceRun: true*/ // move to reference point first at the beginning of the program
 };
 
@@ -68,7 +68,7 @@ propertyDefinitions = {
   useSmoothing: {title:"Use smoothing", description:"Specifies if smoothing should be used or not.", type:"boolean"},
   useParametricFeed:  {title:"Parametric feed", description:"Specifies the feed value that should be output using a Q value.", type:"boolean"},
   laserPowerPercentage: {title:"Laser power default", description:"Sets the laser power if  none is found  in the tool.", type:"number"},
-  laserDelayBeforeRapid: {title:"Laser delay before rapid", description:"Sets the dwell time after a cut and before a rapid move to minimise streaking on the part", type:"number"}
+  laserDelayBeforeRapidScaler: {title:"Laser delay before rapid scaler", description:"Sets the dwell time after a cut and before a rapid move to minimise streaking on the part. (laser power * scaler)", type:"number"}
 };
 
 // samples:
@@ -275,9 +275,10 @@ function onOpen() {
           laserPowers.push({
             "toolNumber": tool.number,
             "power": powerFormat.format(_cuttingPower),
-            "powerString": _cuttingPowerRaw,
+            "powerPercentage": _cuttingPowerRaw,
             "paramNumber": firstpowerParameter,
-            "defaultPower": _usingDefaultPower
+            "defaultPower": _usingDefaultPower,
+            "delayAfterOff": _cuttingPowerRaw * properties.laserDelayBeforeRapidScaler
           })
           firstpowerParameter++;
 
@@ -294,7 +295,7 @@ function onOpen() {
     for (var i = 0; i < laserPowers.length; i++) {
       writeBlock("#" + laserPowers[i]["paramNumber"] + "=" + laserPowers[i]["power"] +
       " (Laser power for T" + laserPowers[i]["toolNumber"] + ", " +
-      laserPowers[i]["powerString"] + "%" +
+      laserPowers[i]["powerPercentage"] + "%" +
       conditional(laserPowers[i]["defaultPower"], " [Default]") +
       ")");
     }
@@ -828,16 +829,18 @@ function onSection() {
 
 function onPower(power) {
   var _power;
+  var _delay;
   for (var i = 0; i < laserPowers.length; i++) {
     if (laserPowers[i]["toolNumber"] == tool.number) {
-      _power = laserPowers[i]["paramNumber"]
+      _power = laserPowers[i]["paramNumber"];
+      _delay = laserPowers[i]["delayAfterOff"];
     }
   }
 
   writeBlock(mFormat.format(power ? 10 : 11), conditional(power, "Q#"+_power));
 
   if (!power) {
-    writeBlock(gFormat.format(4), pFormat.format(properties.laserDelayBeforeRapid));
+    writeBlock(gFormat.format(4), pFormat.format(_delay));
   }
 }
 
